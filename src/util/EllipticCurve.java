@@ -5,9 +5,10 @@ import java.util.ArrayList;
 public class EllipticCurve {
 
 	public static long NEUTRAL_VALUE = Long.MAX_VALUE;
-	public static long DEFAULT_A = 15485867L;
-	public static long DEFAULT_B = -32452867L;
-	public static long DEFAULT_P = 198491317L;
+	public static long DEFAULT_A = 154858L;
+	public static long DEFAULT_B = -324528L;
+	public static long DEFAULT_P = 1301081L;
+	public static long AUX_BASE_K = 400L;
 	
 	private long a,b,p; // elliptic curve's parameters
 	private long[] basePoint; // basePoint[0] = x, basePoint[1] = y
@@ -83,7 +84,7 @@ public class EllipticCurve {
 		if (GF != null) GF = null;
 		GF = new ArrayList<Long>();
 		
-		for (long l = 0; l < Math.min(1000000L, p/2); l++) {
+		for (long l = 0; l < p/2; l++) {
 			GF.add((l*l) % p);
 		}
 	}
@@ -100,8 +101,10 @@ public class EllipticCurve {
 		setBasePoint(x, y);
 	}
 	
-	public static boolean isValidParameter(long a, long b) {
-		return (4*a*a*a + 27*b*b != 0L);
+	public static boolean isValidParameter(long a, long b, long p) {
+		long exp1 = (a*a) % p, exp2 = (b*b) % p;
+		exp1 *= (4*a) % p; exp2 *= 27;
+		return (((exp1 + exp2) % p) != 0L);
 	}
 	
 	public boolean isValidPoint(long x, long y) {
@@ -132,6 +135,8 @@ public class EllipticCurve {
 		persamaan2 *= x;
 		persamaan2 %= p;
 		persamaan2 += b;
+		persamaan2 += p;
+		persamaan2 %= p;
 
 		if (GF.contains(persamaan2)) return GF.indexOf(persamaan2);
 		return 0L;
@@ -205,5 +210,19 @@ public class EllipticCurve {
 		}
 		
 		return retval;
+	}
+	
+	public static void main(String[] args) {
+		EllipticCurve ec = new EllipticCurve(EllipticCurve.DEFAULT_A, EllipticCurve.DEFAULT_B, EllipticCurve.DEFAULT_P);
+		long[] P = new long[2];
+		P[0] = 1386;
+		P[1] = 345;
+		long[] Q = new long[2];
+		Q[0] = 280616L;
+		Q[1] = 829376L;
+		long[] R = ec.addPoint(P, Q);
+		Q[1] = -829376L;
+		long[] S = ec.addPoint(R, Q);
+		System.out.println(S[0] + " " + S[1]);
 	}
 }

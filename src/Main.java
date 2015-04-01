@@ -3,8 +3,11 @@ import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
@@ -96,8 +99,13 @@ public class Main {
 	private static JTextArea outputArea;
 	private static JScrollPane outputScroll;
 	private static JButton outputButton;
+	private static JFileChooser outputChooser;
 	
 	private static EllipticCurve curve;
+	private static long[] message;
+	private static long[][] tempPoint;
+	
+	private static long time;
 	
 	/**
 	 * create singleton of class Main
@@ -188,7 +196,7 @@ public class Main {
 					b = Long.parseLong(bField.getText());
 				}
 				
-				if (!EllipticCurve.isValidParameter(a, b)) {
+				if (!EllipticCurve.isValidParameter(a, b, p)) {
 					a = EllipticCurve.DEFAULT_A;
 					b = EllipticCurve.DEFAULT_B;
 					JOptionPane.showMessageDialog(null, "4a^3 + 27b^2 must not be equal to 0.\nAutomatically change to default values.");
@@ -459,7 +467,9 @@ public class Main {
 					} catch (IOException e1) {
 						e1.printStackTrace();
 					}
-					
+
+					message = byteToLong(content);
+
 					fileField.setText(path);
 					inputArea.setText(new String(content));
 				}
@@ -473,8 +483,33 @@ public class Main {
 			
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				// TODO Auto-generated method stub
+				long startTime = System.currentTimeMillis();
+				String[] s = publicField.getText().split("[,()]");
+				long[] P = new long[2];
+				P[0] = Long.parseLong(s[1]);
+				P[1] = Long.parseLong(s[2]);
+				long[] key = curve.multiplyPoint(Long.parseLong(privateField.getText()), P);
 				
+				tempPoint = null;
+				tempPoint = new long[message.length][2];
+				for (int i = 0; i < message.length; i++) {
+					//System.out.println(message[i]); //TODO
+					tempPoint[i][0] = encryptChar(message[i]);
+					tempPoint[i][1] = curve.getY(tempPoint[i][0]);
+				}
+
+				String output = "";
+				for (int i = 0; i < tempPoint.length; i++) {
+					tempPoint[i] = curve.addPoint(tempPoint[i], key);
+					message[i] = tempPoint[i][0];
+					output += Long.toHexString(message[i]) + ' ' + Long.toHexString(tempPoint[i][1]) + ' ';
+				}
+				
+				long endTime   = System.currentTimeMillis();
+				
+				timeField.setText(Long.toString(endTime - startTime) + " milliseconds.");
+				sizeField.setText(Integer.toString(output.length()) + " bytes.");
+				outputArea.setText(output);
 			}
 		});
 		
@@ -484,8 +519,38 @@ public class Main {
 			
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				// TODO Auto-generated method stub
+				long startTime = System.currentTimeMillis();
+				String[] s = publicField.getText().split("[,()]");
+				long[] P = new long[2];
+				P[0] = Long.parseLong(s[1]);
+				P[1] = Long.parseLong(s[2]);
+				long[] key = curve.multiplyPoint(Long.parseLong(privateField.getText()), P);
+				key[1] *= -1;
+
+				long[] temp = toDecryptPurpose(message);
 				
+				tempPoint = null;
+				tempPoint = new long[temp.length/2][2];
+				for (int i = 0; i < temp.length/2; i += 2) {
+					tempPoint[i][0] = temp[2*i];
+					tempPoint[i][1] = temp[2*i+1];
+				}
+
+				String output = "";
+				message = null;
+				message = new long[tempPoint.length];
+				for (int i = 0; i < tempPoint.length; i++) {
+					tempPoint[i] = curve.addPoint(tempPoint[i], key);
+					message[i] = decryptChar(tempPoint[i][0]);
+					//System.out.println(message[i]); //TODO
+					output += (char) message[i];
+				}
+				
+				long endTime   = System.currentTimeMillis();
+				
+				timeField.setText(Long.toString(endTime - startTime) + " milliseconds.");
+				sizeField.setText(Integer.toString(14345) + " bytes.");
+				outputArea.setText(output);
 			}
 		});
 		
@@ -581,10 +646,35 @@ public class Main {
 			
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				// TODO Auto-generated method stub
-				
+				if (outputChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+					String path = outputChooser.getSelectedFile().getAbsolutePath();
+					
+					String output = "";
+					for (int i = 0; i < tempPoint.length; i++) {
+						output += Long.toHexString(message[i]) + ' ' + Long.toHexString(tempPoint[i][1]) + ' ';
+					}
+					
+					PrintWriter pw = null;
+					try {
+						pw = new PrintWriter(path);
+						pw.write(output);
+					} catch (FileNotFoundException e1) {
+						e1.printStackTrace();
+					} finally {
+						if (pw != null) pw.close();
+					}
+					
+					/*try {
+						FileOutputStream f = new FileOutputStream(path);
+						f.write(longToByte(message));
+						f.close();
+					} catch (IOException e1) {
+						e1.printStackTrace();
+					}*/
+				}				
 			}
 		});
+		outputChooser = new JFileChooser(new File("res/ciphertext"));
 		
 		// textPanel: panel's layout
 		textLayout.setHorizontalGroup(textLayout.createSequentialGroup()
@@ -629,6 +719,101 @@ public class Main {
 		mainFrame.add(infoPanel);
 		mainFrame.add(textPanel);
 		mainFrame.setVisible(true);
+	}
+	
+	private static byte parseByte(String s) {
+		byte b = 0;
+		for (int i = 1; i < s.length(); i++) {
+			b *= 2;
+			if (s.charAt(i) == '1') {
+				b += 1;
+			}
+		}
+		if (s.charAt(0) == '1') {
+			b -= Math.pow(2, s.length()-1);
+		}
+		return b;
+	}
+	
+	private static long parseLong(String s) {
+		long l = 0;
+		for (int i = 1; i < s.length(); i++) {
+			l *= 2;
+			if (s.charAt(i) == '1') {
+				l += 1;
+			}
+		}
+		if (s.charAt(0) == '1') {
+			l -= Math.pow(2, s.length()-1);
+		}
+		return l;
+	}
+	
+	private static long[] byteToLong(byte[] bytes) {
+		long[] longs = new long[bytes.length];
+		for (int i = 0; i < bytes.length; i++) {
+			longs[i] = (long) bytes[i];
+		}
+		return longs;
+		/*long[] longs = new long[bytes.length/8 + 1];
+		for (int i = 0; i < bytes.length; i += 8) {
+			String s = "";
+			for (int j = 0; j < 8; j++) {
+				if (i+j < bytes.length) {
+					s += String.format("%8s", Integer.toBinaryString(bytes[i+j] & 0xFF)).replace(' ', '0');
+				} else {
+					s += "00000000";
+				}
+			}
+			longs[i/8] = parseLong(s);
+		}
+		return longs;*/
+	}
+	
+	private static byte[] longToByte(long[] longs) {
+		byte[] bytes = new byte[8*longs.length];
+		for (int i = 0; i < longs.length; i++) {
+			String s = String.format("%64s", Long.toBinaryString(longs[i] & 0xFFFFFFFFFFFFFFFFL)).replace(' ', '0');
+			for (int j = 0; j < 8; j++) {
+				String t = s.substring(8*j, 8*(j+1));
+				bytes[i+j] = parseByte(t);
+			}
+		}
+		return bytes;
+	}
+	
+	private static long[] toDecryptPurpose(long[] longs) {
+		long[] retval = new long[longs.length];
+		String s = "";
+		int it = 0;
+		for (int i = 0; i < longs.length; i++) {
+			if (' ' == (char) longs[i]) {
+				retval[it] = Long.parseLong(s, 16);
+				it++;
+				s = "";
+			} else {
+				s += (char) longs[i];
+			}
+		}
+		long[] retval2 = new long[it];
+		for (int i = 0; i < it; i++) {
+			retval2[i] = retval[i];
+		}
+		return retval2;
+	}
+	
+	private static long encryptChar(long i){
+		//enkripsi dari nilai plain karakter menjadi point enkripsi
+		long x = i * EllipticCurve.AUX_BASE_K + 1;
+		while (!curve.isValid(x)){
+			x = x + 1;
+		}
+		return x;
+	}
+	
+	private static long decryptChar(long x){
+		//dekripsi point karakter menjadi plain
+		return (long)(Math.round((x-1)/EllipticCurve.AUX_BASE_K));
 	}
 	
 	/**
