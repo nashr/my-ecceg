@@ -12,7 +12,7 @@ public class EllipticCurve {
 	
 	private long a,b,p; // elliptic curve's parameters
 	private long[] basePoint; // basePoint[0] = x, basePoint[1] = y
-	private ArrayList<Long> GF;
+	private ArrayList<Long> GF; // Galois Field for current p
 	
 	/**
 	 * constructor without base point
@@ -24,24 +24,8 @@ public class EllipticCurve {
 		this.a = a;
 		this.b = b;
 		this.p = p;
-	}
-	
-	/**
-	 * constructor with defined base point
-	 * @param |a| < p
-	 * @param |b| < p
-	 * @param p : prime number
-	 * @param xb
-	 * @param yb <> 0
-	 */
-	public EllipticCurve(long a, long b, long p, long xb, long yb) {
-		this.a = a;
-		this.b = b;
-		this.p = p;
 		
-		basePoint = new long[2];
-		basePoint[0] = xb;
-		basePoint[1] = yb;
+		generateGaloisField();
 	}
 	
 	public long getA() {
@@ -72,6 +56,7 @@ public class EllipticCurve {
 		if (Prime.isPrime(p)) {
 			this.p = p;
 		}
+		generateGaloisField();
 	}
 	
 	public void setBasePoint(long x, long y) {
@@ -90,7 +75,6 @@ public class EllipticCurve {
 	}
 	
 	public void generateBasePoint() {
-		generateGaloisField();
 		long x = p / 2;
 		long y = getY(x);
 		while (y == 0L) {
@@ -108,17 +92,15 @@ public class EllipticCurve {
 	}
 	
 	public boolean isValidPoint(long x, long y) {
-		long LHS = (y*y) % p;
-		long RHS = ((x * x) % p + a) % p;
-		RHS *= x;
-		RHS %= p;
-		RHS += b;
-		
-		return LHS == RHS;
+		if (y > p/2) {
+			y = Math.abs(y-p);
+		}
+		return (x == GF.get((int) y));
 	}
 	
 	public boolean isValid(long x){
-		//Apakah nilai X sudah memenuhi persamaan kurva eliptik?
+		return GF.contains(x);
+		/*//Apakah nilai X sudah memenuhi persamaan kurva eliptik?
 		long persamaan2 = (x * x * x + a * x + b);
 		//System.out.println("Px: "+persamaan2);
 
@@ -126,7 +108,7 @@ public class EllipticCurve {
 
 		double akar = Math.sqrt(persamaan2);
 		if (Math.round(akar) == akar) return true;
-		else return false;
+		else return false;*/
 	}
 	
 	public long getY(long x){
@@ -182,7 +164,7 @@ public class EllipticCurve {
 			lambda %= p;
 			
 			retval[0] = (((lambda*lambda) % p) - P[0] - Q[0] + 2*p) % p;
-			retval[1] = (((lambda*(P[0] - retval[0])) % p) - P[1] + p) % p;
+			retval[1] = (((lambda*(P[0] - retval[0])) % p) - P[1] + 2*p) % p;
 		}
 		
 		return retval;

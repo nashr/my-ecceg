@@ -3,15 +3,14 @@ import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Random;
 
 import javax.swing.BorderFactory;
@@ -27,6 +26,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 
 import util.EllipticCurve;
+import util.NumberFormatter;
 import util.Prime;
 
 /**
@@ -99,13 +99,13 @@ public class Main {
 	private static JTextArea outputArea;
 	private static JScrollPane outputScroll;
 	private static JButton outputButton;
-	private static JFileChooser outputChooser;
 	
 	private static EllipticCurve curve;
+	private static byte[] content;
 	private static long[] message;
 	private static long[][] tempPoint;
 	
-	private static long time;
+	private static HashMap<Long, Long> converterTable;
 	
 	/**
 	 * create singleton of class Main
@@ -113,6 +113,7 @@ public class Main {
 	 */
 	public static Main getInstance() {
 		instance = new Main();
+		converterTable = new HashMap<Long, Long>();
 		prepareGUI();
 		return instance;
 	}
@@ -298,7 +299,7 @@ public class Main {
 				
 				long privateKey;
 				if (privateKeyField.getText().isEmpty()) {
-					privateKey = new Random().nextInt(1000000);
+					privateKey = new Random().nextInt((int) curve.getP());
 					while (privateKey < 0 || privateKey > curve.getP()) {
 						privateKey += curve.getP();
 					}
@@ -312,6 +313,9 @@ public class Main {
 				
 				long[] publicKey = curve.getPublicKey(privateKey);
 				publicKeyField.setText("(" + Long.toString(publicKey[0]) + "," + Long.toString(publicKey[1]) + ")");
+				
+				privateKeyButton.setEnabled(true);
+				publicKeyButton.setEnabled(true);
 			}
 			
 		});
@@ -320,6 +324,7 @@ public class Main {
 		privateKeyLabel = new JLabel("Private key");
 		privateKeyField = new JTextField();
 		privateKeyButton = new JButton("Save As");
+		privateKeyButton.setEnabled(false);
 		privateKeyButton.addActionListener(new ActionListener() {
 
 			@Override
@@ -351,6 +356,7 @@ public class Main {
 		publicKeyField = new JTextField();
 		publicKeyField.setEditable(false);
 		publicKeyButton = new JButton("Save As");
+		publicKeyButton.setEnabled(false);
 		publicKeyButton.addActionListener(new ActionListener() {
 
 			@Override
@@ -461,21 +467,25 @@ public class Main {
 			public void actionPerformed(ActionEvent e) {
 				if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
 					String path = fileChooser.getSelectedFile().getAbsolutePath();
-					byte[] content = null;
+					content = null;
 					try {
 						content = Files.readAllBytes(Paths.get(path));
 					} catch (IOException e1) {
 						e1.printStackTrace();
 					}
 
-					message = byteToLong(content);
+					message = null;
+					message = new long[content.length];
+					for (int i = 0; i < content.length; i++) {
+						message[i] = content[i];
+					}
 
 					fileField.setText(path);
 					inputArea.setText(new String(content));
 				}
 			}
 		});
-		fileChooser = new JFileChooser(new File("res/plaintext"));
+		fileChooser = new JFileChooser(new File("res/file"));
 		
 		// filePanel: encrypt button
 		encryptButton = new JButton("Encrypt");
@@ -484,32 +494,42 @@ public class Main {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				long startTime = System.currentTimeMillis();
+				
+				// calculate key for encryption
 				String[] s = publicField.getText().split("[,()]");
 				long[] P = new long[2];
 				P[0] = Long.parseLong(s[1]);
 				P[1] = Long.parseLong(s[2]);
 				long[] key = curve.multiplyPoint(Long.parseLong(privateField.getText()), P);
 				
+				// encode message to point
 				tempPoint = null;
 				tempPoint = new long[message.length][2];
 				for (int i = 0; i < message.length; i++) {
-					//System.out.println(message[i]); //TODO
-					tempPoint[i][0] = encryptChar(message[i]);
-					tempPoint[i][1] = curve.getY(tempPoint[i][0]);
+					tempPoint[i][0] = encryptChar(message[i]);//TODO message[i];
+					Long y = converterTable.get(tempPoint[i][0]);
+					if (y == null) {
+						tempPoint[i][1] = curve.getY(tempPoint[i][0]);
+						converterTable.put(tempPoint[i][0], tempPoint[i][1]);
+					} else {
+						tempPoint[i][1] = y;
+					}
 				}
 
+				// encrypt each point
 				String output = "";
 				for (int i = 0; i < tempPoint.length; i++) {
 					tempPoint[i] = curve.addPoint(tempPoint[i], key);
-					message[i] = tempPoint[i][0];
-					output += Long.toHexString(message[i]) + ' ' + Long.toHexString(tempPoint[i][1]) + ' ';
+					output += Long.toHexString(tempPoint[i][0]) + ' ' + Long.toHexString(tempPoint[i][1]) + ' ';
 				}
 				
 				long endTime   = System.currentTimeMillis();
 				
-				timeField.setText(Long.toString(endTime - startTime) + " milliseconds.");
-				sizeField.setText(Integer.toString(output.length()) + " bytes.");
+				timeField.setText(((endTime - startTime) / 1000d) + " seconds.");
+				sizeField.setText((output.length() / 1024d) + " KBs.");
 				outputArea.setText(output);
+				
+				content = null;
 			}
 		});
 		
@@ -520,37 +540,34 @@ public class Main {
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
 				long startTime = System.currentTimeMillis();
+				
+				// calculate key for decryption
 				String[] s = publicField.getText().split("[,()]");
 				long[] P = new long[2];
 				P[0] = Long.parseLong(s[1]);
 				P[1] = Long.parseLong(s[2]);
 				long[] key = curve.multiplyPoint(Long.parseLong(privateField.getText()), P);
 				key[1] *= -1;
-
-				long[] temp = toDecryptPurpose(message);
 				
-				tempPoint = null;
-				tempPoint = new long[temp.length/2][2];
-				for (int i = 0; i < temp.length/2; i += 2) {
-					tempPoint[i][0] = temp[2*i];
-					tempPoint[i][1] = temp[2*i+1];
-				}
+				// extract point from ciphertext
+				tempPoint = extractPoint(message);
 
-				String output = "";
-				message = null;
-				message = new long[tempPoint.length];
+				// decrypt each point and decode message
+				content = null;
+				content = new byte[tempPoint.length];
 				for (int i = 0; i < tempPoint.length; i++) {
 					tempPoint[i] = curve.addPoint(tempPoint[i], key);
-					message[i] = decryptChar(tempPoint[i][0]);
-					//System.out.println(message[i]); //TODO
-					output += (char) message[i];
+					if (tempPoint[i][0] >= 256) {
+						tempPoint[i][0] -= curve.getP();
+					}
+					content[i] = (byte) decryptChar(tempPoint[i][0]);//TODO tempPoint[i][0];
 				}
 				
 				long endTime   = System.currentTimeMillis();
 				
-				timeField.setText(Long.toString(endTime - startTime) + " milliseconds.");
-				sizeField.setText(Integer.toString(14345) + " bytes.");
-				outputArea.setText(output);
+				timeField.setText(((endTime - startTime) / 1000d) + " seconds.");
+				sizeField.setText((content.length / 1024d) + " KBs.");
+				outputArea.setText(new String(content));
 			}
 		});
 		
@@ -646,35 +663,32 @@ public class Main {
 			
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				if (outputChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-					String path = outputChooser.getSelectedFile().getAbsolutePath();
+				if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+					String path = fileChooser.getSelectedFile().getAbsolutePath();
 					
-					String output = "";
-					for (int i = 0; i < tempPoint.length; i++) {
-						output += Long.toHexString(message[i]) + ' ' + Long.toHexString(tempPoint[i][1]) + ' ';
+					if (content == null) {
+						PrintWriter pw = null;
+						try {
+							pw = new PrintWriter(path);
+							pw.write(outputArea.getText());
+						} catch (FileNotFoundException e1) {
+							e1.printStackTrace();
+						} finally {
+							if (pw != null) pw.close();
+						}
+					} else {
+						FileOutputStream f;
+						try {
+							f = new FileOutputStream(path);
+							f.write(content);
+							f.close();
+						} catch (Exception e1) {
+							e1.printStackTrace();
+						}
 					}
-					
-					PrintWriter pw = null;
-					try {
-						pw = new PrintWriter(path);
-						pw.write(output);
-					} catch (FileNotFoundException e1) {
-						e1.printStackTrace();
-					} finally {
-						if (pw != null) pw.close();
-					}
-					
-					/*try {
-						FileOutputStream f = new FileOutputStream(path);
-						f.write(longToByte(message));
-						f.close();
-					} catch (IOException e1) {
-						e1.printStackTrace();
-					}*/
 				}				
 			}
 		});
-		outputChooser = new JFileChooser(new File("res/ciphertext"));
 		
 		// textPanel: panel's layout
 		textLayout.setHorizontalGroup(textLayout.createSequentialGroup()
@@ -721,92 +735,39 @@ public class Main {
 		mainFrame.setVisible(true);
 	}
 	
-	private static byte parseByte(String s) {
-		byte b = 0;
-		for (int i = 1; i < s.length(); i++) {
-			b *= 2;
-			if (s.charAt(i) == '1') {
-				b += 1;
-			}
-		}
-		if (s.charAt(0) == '1') {
-			b -= Math.pow(2, s.length()-1);
-		}
-		return b;
-	}
-	
-	private static long parseLong(String s) {
-		long l = 0;
-		for (int i = 1; i < s.length(); i++) {
-			l *= 2;
-			if (s.charAt(i) == '1') {
-				l += 1;
-			}
-		}
-		if (s.charAt(0) == '1') {
-			l -= Math.pow(2, s.length()-1);
-		}
-		return l;
-	}
-	
-	private static long[] byteToLong(byte[] bytes) {
-		long[] longs = new long[bytes.length];
-		for (int i = 0; i < bytes.length; i++) {
-			longs[i] = (long) bytes[i];
-		}
-		return longs;
-		/*long[] longs = new long[bytes.length/8 + 1];
-		for (int i = 0; i < bytes.length; i += 8) {
-			String s = "";
-			for (int j = 0; j < 8; j++) {
-				if (i+j < bytes.length) {
-					s += String.format("%8s", Integer.toBinaryString(bytes[i+j] & 0xFF)).replace(' ', '0');
-				} else {
-					s += "00000000";
-				}
-			}
-			longs[i/8] = parseLong(s);
-		}
-		return longs;*/
-	}
-	
-	private static byte[] longToByte(long[] longs) {
-		byte[] bytes = new byte[8*longs.length];
-		for (int i = 0; i < longs.length; i++) {
-			String s = String.format("%64s", Long.toBinaryString(longs[i] & 0xFFFFFFFFFFFFFFFFL)).replace(' ', '0');
-			for (int j = 0; j < 8; j++) {
-				String t = s.substring(8*j, 8*(j+1));
-				bytes[i+j] = parseByte(t);
-			}
-		}
-		return bytes;
-	}
-	
-	private static long[] toDecryptPurpose(long[] longs) {
+	private static long[][] extractPoint(long[] longs) {
 		long[] retval = new long[longs.length];
 		String s = "";
+		
 		int it = 0;
 		for (int i = 0; i < longs.length; i++) {
 			if (' ' == (char) longs[i]) {
-				retval[it] = Long.parseLong(s, 16);
+				retval[it] = NumberFormatter.parseHexToLong(s);
 				it++;
 				s = "";
 			} else {
 				s += (char) longs[i];
 			}
 		}
-		long[] retval2 = new long[it];
-		for (int i = 0; i < it; i++) {
-			retval2[i] = retval[i];
+		
+		long[][] retval2 = new long[it/2][2];
+		for (int i = 0; i < it/2; i++) {
+			retval2[i][0] = retval[2*i];
+			retval2[i][1] = retval[2*i+1];
 		}
 		return retval2;
 	}
 	
 	private static long encryptChar(long i){
 		//enkripsi dari nilai plain karakter menjadi point enkripsi
-		long x = i * EllipticCurve.AUX_BASE_K + 1;
+		while (i < 0) {
+			i += curve.getP();
+		}
+		long x = ((i * EllipticCurve.AUX_BASE_K) % curve.getP()) + 1;
+		x %= curve.getP();
 		while (!curve.isValid(x)){
 			x = x + 1;
+			x %= curve.getP();
 		}
 		return x;
 	}
