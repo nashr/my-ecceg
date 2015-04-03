@@ -9,6 +9,7 @@ public class EllipticCurve {
 	public static long DEFAULT_B = -324528L;
 	public static long DEFAULT_P = 1301081L;
 	public static long AUX_BASE_K = 400L;
+	public static long DECODE_FACTOR = 128L;
 	
 	private long a,b,p; // elliptic curve's parameters
 	private long[] basePoint; // basePoint[0] = x, basePoint[1] = y
@@ -192,19 +193,5 @@ public class EllipticCurve {
 		}
 		
 		return retval;
-	}
-	
-	public static void main(String[] args) {
-		EllipticCurve ec = new EllipticCurve(EllipticCurve.DEFAULT_A, EllipticCurve.DEFAULT_B, EllipticCurve.DEFAULT_P);
-		long[] P = new long[2];
-		P[0] = 1386;
-		P[1] = 345;
-		long[] Q = new long[2];
-		Q[0] = 280616L;
-		Q[1] = 829376L;
-		long[] R = ec.addPoint(P, Q);
-		Q[1] = -829376L;
-		long[] S = ec.addPoint(R, Q);
-		System.out.println(S[0] + " " + S[1]);
 	}
 }

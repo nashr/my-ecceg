@@ -106,6 +106,7 @@ public class Main {
 	private static long[][] tempPoint;
 	
 	private static HashMap<Long, Long> converterTable;
+	private static HashMap<Long, Long> pointTable;
 	
 	/**
 	 * create singleton of class Main
@@ -113,7 +114,10 @@ public class Main {
 	 */
 	public static Main getInstance() {
 		instance = new Main();
+		
 		converterTable = new HashMap<Long, Long>();
+		pointTable = new HashMap<Long, Long>();
+		
 		prepareGUI();
 		return instance;
 	}
@@ -493,6 +497,11 @@ public class Main {
 			
 			@Override
 			public void actionPerformed(ActionEvent e) {
+				if (curve == null) {
+					JOptionPane.showMessageDialog(null, "No elliptic curved defined");
+					return;
+				}
+				
 				long startTime = System.currentTimeMillis();
 				
 				// calculate key for encryption
@@ -506,11 +515,20 @@ public class Main {
 				tempPoint = null;
 				tempPoint = new long[message.length][2];
 				for (int i = 0; i < message.length; i++) {
-					tempPoint[i][0] = encryptChar(message[i]);//TODO message[i];
-					Long y = converterTable.get(tempPoint[i][0]);
+					// generate x
+					Long x = converterTable.get(message[i]);
+					if (x == null) {
+						tempPoint[i][0] = encryptChar(message[i]);
+						converterTable.put(message[i], tempPoint[i][0]);
+					} else {
+						tempPoint[i][0] = x;
+					}
+					
+					// generate y
+					Long y = pointTable.get(tempPoint[i][0]);
 					if (y == null) {
 						tempPoint[i][1] = curve.getY(tempPoint[i][0]);
-						converterTable.put(tempPoint[i][0], tempPoint[i][1]);
+						pointTable.put(tempPoint[i][0], tempPoint[i][1]);
 					} else {
 						tempPoint[i][1] = y;
 					}
@@ -526,7 +544,7 @@ public class Main {
 				long endTime   = System.currentTimeMillis();
 				
 				timeField.setText(((endTime - startTime) / 1000d) + " seconds.");
-				sizeField.setText((output.length() / 1024d) + " KBs.");
+				sizeField.setText(Math.ceil(output.length() / 1024d) + " KBs.");
 				outputArea.setText(output);
 				
 				content = null;
@@ -557,16 +575,13 @@ public class Main {
 				content = new byte[tempPoint.length];
 				for (int i = 0; i < tempPoint.length; i++) {
 					tempPoint[i] = curve.addPoint(tempPoint[i], key);
-					if (tempPoint[i][0] >= 256) {
-						tempPoint[i][0] -= curve.getP();
-					}
-					content[i] = (byte) decryptChar(tempPoint[i][0]);//TODO tempPoint[i][0];
+					content[i] = (byte) decryptChar(tempPoint[i][0]);
 				}
 				
 				long endTime   = System.currentTimeMillis();
 				
 				timeField.setText(((endTime - startTime) / 1000d) + " seconds.");
-				sizeField.setText((content.length / 1024d) + " KBs.");
+				sizeField.setText(Math.ceil(content.length / 1024d) + " KBs.");
 				outputArea.setText(new String(content));
 			}
 		});
@@ -760,21 +775,19 @@ public class Main {
 	
 	private static long encryptChar(long i){
 		//enkripsi dari nilai plain karakter menjadi point enkripsi
-		while (i < 0) {
-			i += curve.getP();
-		}
-		long x = ((i * EllipticCurve.AUX_BASE_K) % curve.getP()) + 1;
-		x %= curve.getP();
+		i += EllipticCurve.DECODE_FACTOR;
+		long x = i * EllipticCurve.AUX_BASE_K + 1;
 		while (!curve.isValid(x)){
 			x = x + 1;
-			x %= curve.getP();
 		}
 		return x;
 	}
 	
 	private static long decryptChar(long x){
 		//dekripsi point karakter menjadi plain
-		return (long)(Math.round((x-1)/EllipticCurve.AUX_BASE_K));
+		long retval = (long)(Math.round((x-1)/EllipticCurve.AUX_BASE_K));
+		retval -= EllipticCurve.DECODE_FACTOR;
+		return retval;
 	}
 	
 	/**
